@@ -1,4 +1,3 @@
-// pybind libraries
 #include <pybind11/pybind11.h>
 #include <pybind11/eigen.h>
 #include <pybind11/stl.h>
@@ -8,6 +7,9 @@
 #include <cfloat>
 #include <vector>
 #include <chrono>
+#include <iostream>
+
+#include <Eigen/Core>
 
 // #include <omp.h>
 
@@ -329,6 +331,74 @@ std::tuple<Eigen::VectorXsc, Eigen::VectorXb, Eigen::VectorXb> _compute_visibili
 }
 
 
+Eigen::VectorXsc _raw_bev(const Eigen::MatrixXf & original_points,
+                                     const Eigen::MatrixXf & sensor_origins,
+                                     const Eigen::VectorXf & time_stamps,
+                                     const Eigen::VectorXf & pc_range,
+                                     const double voxel_size)
+{
+    // py::gil_scoped_acquire acquire;
+
+    //
+    const double & pxmin = pc_range[0];
+    const double & pymin = pc_range[1];
+    const double & pzmin = pc_range[2];
+    const double & pxmax = pc_range[3];
+    const double & pymax = pc_range[4];
+    const double & pzmax = pc_range[5];
+
+    //
+    const int vxsize = (pxmax - pxmin) / voxel_size;
+    const int vysize = (pymax - pymin) / voxel_size;
+    const int vzsize = (pzmax - pzmin) / voxel_size;
+    const Eigen::Vector3i grid_size(vxsize, vysize, vzsize);
+
+    //
+    const int G1 = vxsize;
+    const int G2 = vysize * G1;
+    const int G3 = vzsize * G2;
+
+        //
+    //Eigen::RowVector3f offset3d(pxmin, pymin, pzmin);
+    Eigen::RowVector3f offset3d(0.0f, 0.0f, 0.0f);
+    // Eigen::RowVector4f offset4d(pxmin, pymin, pzmin, 0.0f);
+    Eigen::RowVector4f offset4d(0.0f, 0.0f, 0.0f, 0.0f);
+
+    //
+    const signed char OCCUPIED = 1;
+    const signed char UNKNOWN = 0;
+    const signed char FREE = -1;
+    Eigen::VectorXsc visibility = Eigen::VectorXsc::Constant(G3, UNKNOWN);
+
+    // #pragma omp parallel for num_threads(3)
+    for (int i = 0; i < original_points.rows(); ++ i) {
+        // COMPUTE VISIBILITY
+        Eigen::Vector3d origin = (sensor_origins.row(i) - offset3d).cast<double>();
+        // std::cout<< "origin: "<<origin<<std::endl;
+
+        Eigen::Vector3d point = (original_points.row(i) - offset3d).cast<double>();
+        // std::cout<< "point: "<<point<<std::endl;
+        std::vector<Eigen::Vector3i> visited_voxels;
+        bool truncated = _voxel_traversal(visited_voxels, origin, point, grid_size, voxel_size);
+        const int M = visited_voxels.size();
+        // for (int k=0; k<visited_voxels.size(); ++k){
+        //     // std::cout<< "vv: "<<visited_voxels[k]<<std::endl;
+        // }
+        for (int j = 0; j < M; ++ j) {
+            const int &vx = visited_voxels[j][0], &vy = visited_voxels[j][1], &vz = visited_voxels[j][2];
+            const int vidx = vz * G2 + vy * G1 + vx;
+            // std::cout<< "vidx: "<<vidx<<std::endl;
+            if (visibility[vidx] == OCCUPIED) {
+                continue;
+            } else {
+                visibility[vidx] = (j==M-1 && !truncated) ? OCCUPIED : FREE ;
+            }
+        }
+    }
+    return visibility;
+}
+
+
 Eigen::VectorXsc _compute_visibility(const Eigen::MatrixXf & original_points,
                                      const Eigen::MatrixXf & sensor_origins,
                                      const Eigen::VectorXf & time_stamps,
@@ -352,59 +422,44 @@ Eigen::VectorXsc _compute_visibility(const Eigen::MatrixXf & original_points,
     const Eigen::Vector3i grid_size(vxsize, vysize, vzsize);
 
     //
-    const int T = time_stamps.size() - 1;
     const int G1 = vxsize;
     const int G2 = vysize * G1;
     const int G3 = vzsize * G2;
-    const int G4 = T * G3;
 
-    //
-    Eigen::RowVector3f offset3d(pxmin, pymin, pzmin);
-    Eigen::RowVector4f offset4d(pxmin, pymin, pzmin, 0.0f);
+        //
+    //Eigen::RowVector3f offset3d(pxmin, pymin, pzmin);
+    Eigen::RowVector3f offset3d(0.0f, 0.0f, 0.0f);
+    // Eigen::RowVector4f offset4d(pxmin, pymin, pzmin, 0.0f);
+    Eigen::RowVector4f offset4d(0.0f, 0.0f, 0.0f, 0.0f);
 
     //
     const signed char OCCUPIED = 1;
     const signed char UNKNOWN = 0;
     const signed char FREE = -1;
-    Eigen::VectorXsc visibility = Eigen::VectorXsc::Constant(G4, UNKNOWN);
+    Eigen::VectorXsc visibility = Eigen::VectorXsc::Constant(G3, UNKNOWN);
 
-    // go through all sampled points and put them into different bins based on the timestamps
-    std::vector<std::vector<int>> original_indices (T, std::vector<int>());
-    for (int i = 0, last_t = -1; i < original_points.rows(); ++ i) {
-        const double pt = original_points(i,3);
-        if (last_t >= 0 && time_stamps[last_t] <= pt && pt < time_stamps[last_t+1]) {
-            original_indices[last_t].push_back(i);
-        } else {
-            for (int t = 0; t < T; ++ t) {
-                if (time_stamps[t] <= pt && pt < time_stamps[t+1]) {
-                    original_indices[t].push_back(i);
-                    last_t = t;
-                    break;
-                }
-            }
-        }
-    }
-
-    // #pragma omp parallel for
-    for (int t = 0; t < T; ++ t) {
+    // #pragma omp parallel for num_threads(3)
+    for (int i = 0; i < original_points.rows(); ++ i) {
         // COMPUTE VISIBILITY
-        Eigen::VectorXf update = Eigen::VectorXf::Zero(G3);
-        Eigen::Vector3d origin = (sensor_origins.row(t) - offset3d).cast<double>();
+        Eigen::Vector3d origin = (sensor_origins.row(i) - offset3d).cast<double>();
+        // std::cout<< "origin: "<<origin<<std::endl;
 
-        for (const int & i : original_indices[t]) {
-            Eigen::Vector3d point = (original_points.row(i) - offset4d).head(3).cast<double>();
-            std::vector<Eigen::Vector3i> visited_voxels;
-            bool truncated = _voxel_traversal(visited_voxels, origin, point, grid_size, voxel_size);
-            const int M = visited_voxels.size();
-            for (int j = 0; j < M; ++ j) {
-                const int &vx = visited_voxels[j][0], &vy = visited_voxels[j][1], &vz = visited_voxels[j][2];
-                const int vidx = vz * G2 + vy * G1 + vx;
-                const int midx = t * G3 + vidx;
-                if (visibility[midx] == OCCUPIED) {
-                    continue;
-                } else {
-                    visibility[midx] = (j==M-1 && !truncated) ? OCCUPIED : FREE ;
-                }
+        Eigen::Vector3d point = (original_points.row(i) - offset3d).cast<double>();
+        // std::cout<< "point: "<<point<<std::endl;
+        std::vector<Eigen::Vector3i> visited_voxels;
+        bool truncated = _voxel_traversal(visited_voxels, origin, point, grid_size, voxel_size);
+        const int M = visited_voxels.size();
+        // for (int k=0; k<visited_voxels.size(); ++k){
+        //     // std::cout<< "vv: "<<visited_voxels[k]<<std::endl;
+        // }
+        for (int j = 0; j < M; ++ j) {
+            const int &vx = visited_voxels[j][0], &vy = visited_voxels[j][1], &vz = visited_voxels[j][2];
+            const int vidx = vz * G2 + vy * G1 + vx;
+            // std::cout<< "vidx: "<<vidx<<std::endl;
+            if (visibility[vidx] == OCCUPIED) {
+                continue;
+            } else {
+                visibility[vidx] = (j==M-1 && !truncated) ? OCCUPIED : FREE ;
             }
         }
     }
@@ -622,6 +677,7 @@ Eigen::VectorXf _compute_logodds(const Eigen::MatrixXf & original_points,
 {
     // py::gil_scoped_acquire acquire;
 
+    // std::cout<< "here0"<<std::endl;
     //
     const double & pxmin = pc_range[0];
     const double & pymin = pc_range[1];
@@ -629,71 +685,93 @@ Eigen::VectorXf _compute_logodds(const Eigen::MatrixXf & original_points,
     const double & pxmax = pc_range[3];
     const double & pymax = pc_range[4];
     const double & pzmax = pc_range[5];
+    // std::cout<< "here1"<<std::endl;
 
     //
     const int vxsize = (pxmax - pxmin) / voxel_size;
     const int vysize = (pymax - pymin) / voxel_size;
     const int vzsize = (pzmax - pzmin) / voxel_size;
     const Eigen::Vector3i grid_size(vxsize, vysize, vzsize);
+    // std::cout<< "here2"<<std::endl;
 
     //
-    const int T = time_stamps.size() - 1;
     const int G1 = vxsize;
     const int G2 = vysize * G1;
     const int G3 = vzsize * G2;
 
+    // std::cout<< "here3"<<std::endl;
+
     //
-    Eigen::RowVector3f offset3d(pxmin, pymin, pzmin);
-    Eigen::RowVector4f offset4d(pxmin, pymin, pzmin, 0.0f);
+    //Eigen::RowVector3f offset3d(pxmin, pymin, pzmin);
+    Eigen::RowVector3f offset3d(0.0f, 0.0f, 0.0f);
+    // Eigen::RowVector4f offset4d(pxmin, pymin, pzmin, 0.0f);
+    Eigen::RowVector4f offset4d(0.0f, 0.0f, 0.0f, 0.0f);
 
     //
     Eigen::VectorXf logodds = Eigen::VectorXf::Zero(G3);
 
-    // go through all sampled points and put them into different bins based on the timestamps
-    std::vector<std::vector<int>> original_indices (T, std::vector<int>());
-    for (int i = 0, last_t = -1; i < original_points.rows(); ++ i) {
-        const double pt = original_points(i,3);
-        if (last_t >= 0 && time_stamps[last_t] <= pt && pt < time_stamps[last_t+1]) {
-            original_indices[last_t].push_back(i);
-        } else {
-            for (int t = 0; t < T; ++ t) {
-                if (time_stamps[t] <= pt && pt < time_stamps[t+1]) {
-                    original_indices[t].push_back(i);
-                    last_t = t;
-                    break;
-                }
-            }
-        }
-    }
+    // std::cout<< "here3.5"<<std::endl;
+
+    // std::cout<< "here3.6"<<std::endl;
+    // for (int i = 0, last_t = -1; i < original_points.rows(); ++ i) {
+    //     // std::cout<< "bla-1"<<std::endl;
+    //     // std::cout<< original_points.rows() << " | "<< original_points.cols() <<std::endl;
+    //     // std::cout<< original_points <<std::endl;
+    //     // std::cout<< original_points(3,1) <<std::endl;
+    //     // std::cout<< "bla0: i= "<<i<<std::endl;
+    //     // const double pt = original_points(i,3); //original line!
+    //     const double pt = time_stamps[0]; // because all of them have the same time stamp
+    //     // std::cout<< "bla0"<<std::endl;
+    //     if (last_t >= 0 && time_stamps[last_t] <= pt && pt < time_stamps[last_t+1]) {
+    //         original_indices[last_t].push_back(i);
+    //         // std::cout<< "bla1"<<std::endl;
+    //     } else {
+    //         // std::cout<< "bla2"<<std::endl;
+    //         for (int t = 0; t < T; ++ t) {
+    //             if (time_stamps[t] <= pt && pt < time_stamps[t+1]) {
+    //                 // std::cout<< "bla3"<<std::endl;
+    //                 original_indices[t].push_back(i);
+    //                 last_t = t;
+    //                 break;
+    //             }
+    //         }
+    //     }
+    // }
+
+    // std::cout<< "here4"<<std::endl;
 
     // #pragma omp parallel for num_threads(3)
-    for (int t = 0; t < T; ++ t) {
+    for (int i = 0; i < original_points.rows(); ++ i) {
         // COMPUTE VISIBILITY
         Eigen::VectorXf update = Eigen::VectorXf::Zero(G3);
-        Eigen::Vector3d origin = (sensor_origins.row(t) - offset3d).cast<double>();
+        Eigen::Vector3d origin = (sensor_origins.row(i) - offset3d).cast<double>();
+        // std::cout<< "origin: "<<origin<<std::endl;
 
-        for (const int & i : original_indices[t]) {
-            Eigen::Vector3d point = (original_points.row(i) - offset4d).head(3).cast<double>();
-            std::vector<Eigen::Vector3i> visited_voxels;
-            bool truncated = _voxel_traversal(visited_voxels, origin, point, grid_size, voxel_size);
-            const int M = visited_voxels.size();
-            for (int j = 0; j < M; ++ j) {
-                const int &vx = visited_voxels[j][0], &vy = visited_voxels[j][1], &vz = visited_voxels[j][2];
-                const int vidx = vz * G2 + vy * G1 + vx;
-                if (update[vidx] > 0) { // if the voxel has been marked as occupied, move on
-                    continue;
-                } else if (j == M-1 && !truncated) { // if it is the last voxel of an untrunc ray, mark it as occupied
-                    update[vidx] = lo_occupied;
-                } else { // otherwise it must be a free voxel
-                    update[vidx] = lo_free;
-                }
+        Eigen::Vector3d point = (original_points.row(i) - offset3d).cast<double>();
+        // std::cout<< "point: "<<point<<std::endl;
+        std::vector<Eigen::Vector3i> visited_voxels;
+        bool truncated = _voxel_traversal(visited_voxels, origin, point, grid_size, voxel_size);
+        const int M = visited_voxels.size();
+        // for (int k=0; k<visited_voxels.size(); ++k){
+        //     // std::cout<< "vv: "<<visited_voxels[k]<<std::endl;
+        // }
+        for (int j = 0; j < M; ++ j) {
+            const int &vx = visited_voxels[j][0], &vy = visited_voxels[j][1], &vz = visited_voxels[j][2];
+            const int vidx = vz * G2 + vy * G1 + vx;
+            // std::cout<< "vidx: "<<vidx<<std::endl;
+            if (update[vidx] > 0) { // if the voxel has been marked as occupied, move on
+                continue;
+            } else if (j == M-1 && !truncated) { // if it is the last voxel of an untrunc ray, mark it as occupied
+                update[vidx] = lo_occupied;
+            } else { // otherwise it must be a free voxel
+                update[vidx] = lo_free;
             }
         }
 
         // #pragma omp critical
         logodds += update;
     }
-
+    // std::cout<< "here5"<<std::endl;
     return logodds;
 }
 
@@ -714,6 +792,15 @@ PYBIND11_MODULE(mapping, m) {
 
     m.def("compute_visibility",
           &_compute_visibility,
+          py::arg("original_points"),
+          py::arg("sensor_origins"),
+          py::arg("time_stamps"),
+          py::arg("pc_range"),
+          py::arg("voxel_size")
+          );
+    
+    m.def("raw_bev",
+          &_raw_bev,
           py::arg("original_points"),
           py::arg("sensor_origins"),
           py::arg("time_stamps"),

@@ -1,0 +1,3 @@
+/home/azureuser/catkin_ws/src/wysiwyg/second/utils/mapping/build/CMakeFiles/rebuild_cache.dir
+/home/azureuser/catkin_ws/src/wysiwyg/second/utils/mapping/build/CMakeFiles/mapping.dir
+/home/azureuser/catkin_ws/src/wysiwyg/second/utils/mapping/build/CMakeFiles/edit_cache.dir
