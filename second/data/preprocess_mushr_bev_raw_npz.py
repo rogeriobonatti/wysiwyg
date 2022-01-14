@@ -115,7 +115,13 @@ def process_episode(input):
     episode_folder = input[1]
     print("Processing episode: " + episode_name)
     data = np.load(episode_name)
-    num_images = data.shape[0]
+    times = data['ts']
+    actions = data['angles']
+    lidars = data['lidars']
+    # poses = data['poses']
+    # goal = data['goal']
+    num_images = times.shape[0]
+    data = np.concatenate((times, actions, lidars), axis=1)
     for i in range(num_images):
         original_points, sensor_origins, time_stamps, pc_range, voxel_size, lo_occupied, lo_free = load_params(data[i, :])
         
@@ -136,7 +142,7 @@ def process_episode(input):
 
 
 def process_folder(folder, processed_dataset_path, output_folder_name):
-    episodes_list = natsort.natsorted(glob.glob(os.path.join(folder, 'processed/*.npy')))
+    episodes_list = natsort.natsorted(glob.glob(os.path.join(folder, 'processed_withpose2/*.npz')))
     total_n_episodes = len(episodes_list)
     print("Total number of episodes to be processed = {}".format(total_n_episodes))
     parallel_processing = True

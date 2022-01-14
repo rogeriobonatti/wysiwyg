@@ -47,16 +47,11 @@ def load_params(data_col):
     condition = (data_col[2:]<12.0) & (data_col[2:]>0.5) & (~np.isnan(data_col[2:]))
     ok_R = np.extract(condition, data_col[2:])
     num_points = ok_R.shape[0]
-    # angles = np.linspace(0, 2*np.pi, 720)*-1.0 + np.pi # aligned in car coordinate frame (because ydlidar points backwards)
-    angles = np.linspace(0, 2*np.pi, 720)
+    angles = np.linspace(0, 2*np.pi, 720)*-1.0 + np.pi # aligned in car coordinate frame (because ydlidar points backwards)
     ok_angles = np.extract(condition, angles)
     original_points = np.zeros(shape=(num_points, 3), dtype=float) # leave z as zero always, just change X and Y next
-    # car coord points x forward, y right. car front points up in the picture
-    # ydlidar has zero deg pointing backwards in the car, and angle grows clock-wise
-    # original_points[:,0] = -np.cos(ok_angles)*ok_R # X
-    # original_points[:,1] = -np.sin(ok_angles)*ok_R # Y
-    original_points[:,0] = -np.cos(ok_angles)*ok_R # X
-    original_points[:,1] = np.sin(ok_angles)*ok_R # Y
+    original_points[:,0] = np.cos(ok_angles)*ok_R
+    original_points[:,1] = np.sin(ok_angles)*ok_R
     voxel_size = 0.1
     range_x = 10.0
     range_y = 10.0
@@ -65,7 +60,7 @@ def load_params(data_col):
     lo_occupied = np.log(0.7 / (1 - 0.7))
     lo_free = np.log(0.4 / (1 - 0.4))
     sensor_origins = np.tile(np.array([range_x, range_y, range_z]) , (num_points, 1)).astype(float)
-    # original_points = original_points + sensor_origins # add sensor origin offset in the map 
+    original_points = original_points + sensor_origins # add sensor origin offset in the map 
     time_stamps = np.repeat(data_col[0], num_points).astype(float)
     return original_points, sensor_origins, time_stamps, pc_range, voxel_size, lo_occupied, lo_free
 
@@ -89,33 +84,19 @@ def convert_logodds2img(logodds, sx, sy, sz):
         img[grid_idx[0]][grid_idx[1]] = logodds[i]
     return img
 
-def compute_bev_image(original_points, sensor_origins, time_stamps, pc_range, voxel_size):
-    nx = int(np.floor((pc_range[3]-pc_range[0])/voxel_size))
-    ny = int(np.floor((pc_range[4]-pc_range[1])/voxel_size))
-    vis_mat = -1.0* np.ones(shape=(ny, nx))
-    original_points_idx = np.floor(original_points / voxel_size).astype(int) # becomes relative indexes instead of meters
-    # transform from car-centered pixels towards standard image reference frame on upper left corner
-    # Y is rows, down and X is cols, to the right
-    points_vis_idx = np.zeros(shape=original_points_idx.shape, dtype=int)
-    points_vis_idx[:,0] = int(ny/2)-original_points_idx[:,0] # y dir in image
-    points_vis_idx[:,1] = int(nx/2)+original_points_idx[:,1] # x dir in image
-    # remove indexes out of bounds for the image
-    filtered_points_idx = points_vis_idx[(points_vis_idx[:,0]>0) & \
-                                         (points_vis_idx[:,0]<=(ny-1)) & \
-                                         (points_vis_idx[:,1]>0) & \
-                                         (points_vis_idx[:,1]<=(nx-1))] 
-    for p in filtered_points_idx:
-        vis_mat[p[0], p[1]] = 1.0
-    return vis_mat
-
-
 # @background
 def process_episode(input):
     episode_name = input[0]
     episode_folder = input[1]
     print("Processing episode: " + episode_name)
     data = np.load(episode_name)
-    num_images = data.shape[0]
+    times = data['ts']
+    actions = data['angles']
+    lidars = data['lidars']
+    # poses = data['poses']
+    # goal = data['goal']
+    num_images = times.shape[0]
+    data = np.concatenate((times, actions, lidars), axis=1)
     for i in range(num_images):
         original_points, sensor_origins, time_stamps, pc_range, voxel_size, lo_occupied, lo_free = load_params(data[i, :])
         
@@ -125,9 +106,11 @@ def process_episode(input):
         # plt.savefig('bla.png')
 
         # compute visibility
-        vis_mat = compute_bev_image(original_points, sensor_origins, time_stamps, pc_range, voxel_size)
+        vis = mapping.compute_visibility(original_points, sensor_origins, time_stamps, pc_range, voxel_size)
+        vis_mat = convert_logodds2img(vis, 200, 200, 1)
         vis_mat = vis_mat*127+127
         im = Image.fromarray(np.uint8(vis_mat), 'L')
+        im = im.transpose(Image.FLIP_TOP_BOTTOM) # added this line to make sure the occupancy map matches the orientation of the mushr from the raw lidar cloud
         img_filename = os.path.join(episode_folder, str(i)+'.png')
         im.save(img_filename)
         # print(img_filename)
@@ -136,11 +119,11 @@ def process_episode(input):
 
 
 def process_folder(folder, processed_dataset_path, output_folder_name):
-    episodes_list = natsort.natsorted(glob.glob(os.path.join(folder, 'processed/*.npy')))
+    episodes_list = natsort.natsorted(glob.glob(os.path.join(folder, 'processed_withpose2/*.npz')))
     total_n_episodes = len(episodes_list)
     print("Total number of episodes to be processed = {}".format(total_n_episodes))
-    parallel_processing = True
     # parallel_processing = False
+    parallel_processing = True
     if parallel_processing is True:
         inputs_list = []
         for i, episode_name in enumerate(episodes_list, 0):
@@ -165,7 +148,7 @@ def process_folder(folder, processed_dataset_path, output_folder_name):
 
 # define script parameters
 base_folder = '/home/azureuser/hackathon_data/hackathon_data'
-output_folder_name = 'processed_images_bev_fixed6'
+output_folder_name = 'processed_images_occupancy2'
 # folders_list = sorted(glob.glob(os.path.join(base_folder, '*')))
 folders_list = sorted([os.path.join(base_folder,x) for x in os.listdir(base_folder) if os.path.isdir(os.path.join(base_folder, x))])
 total_n_folders = len(folders_list)

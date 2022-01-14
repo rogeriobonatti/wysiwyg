@@ -47,7 +47,7 @@ def gen_ann(dir_names, root_dir):
             for j in range(num_images):
                 # add each individual image in the dataset dict
                 img_occupancy_rel_path = os.path.join(dir_name, 'processed_images', str(i), str(j)+'.png')
-                img_bev_rel_path = os.path.join(dir_name, 'processed_images_bev', str(i), str(j)+'.png')
+                img_bev_rel_path = os.path.join(dir_name, 'processed_images_bev_fixed3', str(i), str(j)+'.png')
                 frame_ann = {
                     'dir_name' : dir_name,
                     'episode_number': i,

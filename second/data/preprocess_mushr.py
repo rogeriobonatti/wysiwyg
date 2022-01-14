@@ -104,6 +104,7 @@ def process_episode(input):
         vis_mat = convert_logodds2img(vis, 200, 200, 1)
         vis_mat = vis_mat*127+127
         im = Image.fromarray(np.uint8(vis_mat), 'L')
+        im = im.transpose(Image.FLIP_TOP_BOTTOM) # added this line to make sure the occupancy map matches the orientation of the mushr from the raw lidar cloud
         img_filename = os.path.join(episode_folder, str(i)+'.png')
         im.save(img_filename)
         # print(img_filename)
@@ -111,7 +112,7 @@ def process_episode(input):
         # plt.savefig('bla.png')
 
 
-def process_folder(folder, processed_dataset_path):
+def process_folder(folder, processed_dataset_path, output_folder_name):
     episodes_list = natsort.natsorted(glob.glob(os.path.join(folder, 'processed/*.npy')))
     total_n_episodes = len(episodes_list)
     print("Total number of episodes to be processed = {}".format(total_n_episodes))
@@ -120,18 +121,18 @@ def process_folder(folder, processed_dataset_path):
     if parallel_processing is True:
         inputs_list = []
         for i, episode_name in enumerate(episodes_list, 0):
-            episode_folder = os.path.join(folder, 'processed_images/', str(i))
+            episode_folder = os.path.join(folder, output_folder_name, str(i))
             if not os.path.isdir(episode_folder):
                 os.makedirs(episode_folder)
                 # move on to process that bag file inside the folder
                 inputs_list.append((episode_name, episode_folder))
             else:
                 print('Warning: episode path already exists. Skipping this episode...')
-        Parallel(n_jobs=-1)(delayed(process_episode)(input) for input in inputs_list)
+        Parallel(n_jobs=36)(delayed(process_episode)(input) for input in inputs_list)
     else:
         for i, episode_name in enumerate(episodes_list, 0):
             print("Beginning episode number = {} out of {}: {}%".format(i, total_n_episodes, int(100.0*i/total_n_episodes)))
-            episode_folder = os.path.join(folder, 'processed_images/', str(i))
+            episode_folder = os.path.join(folder, output_folder_name, str(i))
             if not os.path.isdir(episode_folder):
                 os.makedirs(episode_folder)
                 # move on to process that bag file inside the folder
@@ -141,7 +142,7 @@ def process_folder(folder, processed_dataset_path):
 
 # define script parameters
 base_folder = '/home/azureuser/hackathon_data/hackathon_data'
-output_folder_name = 'processed_images'
+output_folder_name = 'processed_images_occupancy'
 # folders_list = sorted(glob.glob(os.path.join(base_folder, '*')))
 folders_list = sorted([os.path.join(base_folder,x) for x in os.listdir(base_folder) if os.path.isdir(os.path.join(base_folder, x))])
 total_n_folders = len(folders_list)
@@ -154,6 +155,6 @@ for i, folder in enumerate(folders_list, 1):
     if not os.path.isdir(processed_dataset_path):
         os.makedirs(processed_dataset_path)
         # move on to process that bag file inside the folder
-        process_folder(folder, processed_dataset_path)
+        process_folder(folder, processed_dataset_path, output_folder_name)
     else:
         print('Warning: path already exists. Skipping this folder...')
