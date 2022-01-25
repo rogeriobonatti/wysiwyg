@@ -147,7 +147,8 @@ def process_folder(folder, processed_dataset_path, output_folder_name):
                 print('Warning: episode path already exists. Skipping this episode...')
 
 # define script parameters
-base_folder = '/home/azureuser/hackathon_data/hackathon_data'
+base_folder = '/home/azureuser/hackathon_data/hackathon_data_slow_nonoise'
+# base_folder = '/home/azureuser/hackathon_data/real'
 output_folder_name = 'processed_images_occupancy2'
 # folders_list = sorted(glob.glob(os.path.join(base_folder, '*')))
 folders_list = sorted([os.path.join(base_folder,x) for x in os.listdir(base_folder) if os.path.isdir(os.path.join(base_folder, x))])

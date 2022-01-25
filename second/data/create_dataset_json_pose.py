@@ -86,16 +86,17 @@ def gen_ann(dir_names, root_dir):
     return ann
 
 
-root_dir = '/home/azureuser/hackathon_data/hackathon_data'
+root_dir = '/home/azureuser/hackathon_data/hackathon_data_slow_nonoise'
+# root_dir = '/home/azureuser/hackathon_data/real'
 dir_names = [x for x in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, x))]
 
 # A small one for debugging and validation
-ann = gen_ann(dir_names[:1], root_dir)
+ann = gen_ann(dir_names[:2], root_dir)
 with open(os.path.join(root_dir, 'train_ann_pose_debug.json'), 'w') as f:
     json.dump(ann, f, indent=4)
 
 # Full training set.
-ann = gen_ann(dir_names[1:], root_dir)
+ann = gen_ann(dir_names[2:], root_dir)
 with open(os.path.join(root_dir, 'train_ann_pose.json'), 'w') as f:
     json.dump(ann, f, indent=4)
 
