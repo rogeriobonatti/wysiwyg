@@ -142,7 +142,7 @@ def process_episode(input):
 
 
 def process_folder(folder, processed_dataset_path, output_folder_name):
-    episodes_list = natsort.natsorted(glob.glob(os.path.join(folder, 'processed_withpose2/*.npz')))
+    episodes_list = natsort.natsorted(glob.glob(os.path.join(folder, 'processed_withpose3/*.npz')))
     total_n_episodes = len(episodes_list)
     print("Total number of episodes to be processed = {}".format(total_n_episodes))
     parallel_processing = True
@@ -170,9 +170,9 @@ def process_folder(folder, processed_dataset_path, output_folder_name):
                 print('Warning: episode path already exists. Skipping this episode...')
 
 # define script parameters
-base_folder = '/home/azureuser/hackathon_data/hackathon_data_slow_nonoise'
+base_folder = '/home/azureuser/hackathon_data/hackathon_data_language'
 # base_folder = '/home/azureuser/hackathon_data/real'
-output_folder_name = 'processed_images_bev_fixed6'
+output_folder_name = 'processed_images_bev_fixed7'
 # folders_list = sorted(glob.glob(os.path.join(base_folder, '*')))
 folders_list = sorted([os.path.join(base_folder,x) for x in os.listdir(base_folder) if os.path.isdir(os.path.join(base_folder, x))])
 total_n_folders = len(folders_list)
