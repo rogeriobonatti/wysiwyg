@@ -139,10 +139,18 @@ def process_episode(input):
         # print(img_filename)
         # plt.imshow(vis_mat)
         # plt.savefig('bla.png')
+        
+        # save the XY points relative to the car as well if we want to use the pcl decoder
+        # make the points vector to always have the same size of 720 (max number of points)
+        points_to_save = np.zeros(shape=(720,2))
+        points_to_save[:original_points.shape[0],:] = original_points[:,:2]
+        pcl_filename = os.path.join(episode_folder, str(i)+'.npy')
+        np.save(pcl_filename, points_to_save)
+
 
 
 def process_folder(folder, processed_dataset_path, output_folder_name):
-    episodes_list = natsort.natsorted(glob.glob(os.path.join(folder, 'processed_withpose3/*.npz')))
+    episodes_list = natsort.natsorted(glob.glob(os.path.join(folder, 'processed_withpose2/*.npz')))
     total_n_episodes = len(episodes_list)
     print("Total number of episodes to be processed = {}".format(total_n_episodes))
     parallel_processing = True
@@ -170,9 +178,9 @@ def process_folder(folder, processed_dataset_path, output_folder_name):
                 print('Warning: episode path already exists. Skipping this episode...')
 
 # define script parameters
-base_folder = '/home/azureuser/hackathon_data/hackathon_data_language'
+base_folder = '/home/azureuser/hackathon_data/hackathon_data_2p5_nonoise3'
 # base_folder = '/home/azureuser/hackathon_data/real'
-output_folder_name = 'processed_images_bev_fixed7'
+output_folder_name = 'processed_images_bev_fixed9'
 # folders_list = sorted(glob.glob(os.path.join(base_folder, '*')))
 folders_list = sorted([os.path.join(base_folder,x) for x in os.listdir(base_folder) if os.path.isdir(os.path.join(base_folder, x))])
 total_n_folders = len(folders_list)
