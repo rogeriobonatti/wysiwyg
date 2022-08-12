@@ -44,7 +44,8 @@ def background(f):
     return wrapped
 
 def load_params(data_col):
-    condition = (data_col[2:]<12.0) & (data_col[2:]>0.5) & (~np.isnan(data_col[2:]))
+    # condition = (data_col[2:]<12.0) & (data_col[2:]>0.5) & (~np.isnan(data_col[2:]))
+    condition = (data_col[2:]<8.0) & (data_col[2:]>0.02) & (~np.isnan(data_col[2:]))
     ok_R = np.extract(condition, data_col[2:])
     num_points = ok_R.shape[0]
     # angles = np.linspace(0, 2*np.pi, 720)*-1.0 + np.pi # aligned in car coordinate frame (because ydlidar points backwards)
@@ -122,30 +123,35 @@ def process_episode(input):
     # goal = data['goal']
     num_images = times.shape[0]
     data = np.concatenate((times, actions, lidars), axis=1)
+
+    # get the right sizes for image shape from the first sample
+    _, _, _, pc_range, voxel_size, _, _ = load_params(data[0, :])
+    nx = int(np.floor((pc_range[3]-pc_range[0])/voxel_size))
+    ny = int(np.floor((pc_range[4]-pc_range[1])/voxel_size))
+    image_stack = np.zeros(shape=(num_images,nx,ny), dtype=np.uint8)
+    pcl_stack = np.zeros(shape=(num_images,720,2))
+
     for i in range(num_images):
         original_points, sensor_origins, time_stamps, pc_range, voxel_size, lo_occupied, lo_free = load_params(data[i, :])
-        
-        # logodds = mapping.compute_logodds(original_points, sensor_origins, time_stamps, pc_range, voxel_size, lo_occupied, lo_free)
-        # logodds_mat = convert_logodds2img(logodds, 200, 200, 1)
-        # plt.imshow(logodds_mat)
-        # plt.savefig('bla.png')
-
         # compute visibility
         vis_mat = compute_bev_image(original_points, sensor_origins, time_stamps, pc_range, voxel_size)
         vis_mat = vis_mat*127+127
-        im = Image.fromarray(np.uint8(vis_mat), 'L')
-        img_filename = os.path.join(episode_folder, str(i)+'.png')
-        im.save(img_filename)
-        # print(img_filename)
-        # plt.imshow(vis_mat)
-        # plt.savefig('bla.png')
-        
+        image_stack[i,:] = np.uint8(vis_mat)
         # save the XY points relative to the car as well if we want to use the pcl decoder
         # make the points vector to always have the same size of 720 (max number of points)
-        points_to_save = np.zeros(shape=(720,2))
-        points_to_save[:original_points.shape[0],:] = original_points[:,:2]
-        pcl_filename = os.path.join(episode_folder, str(i)+'.npy')
-        np.save(pcl_filename, points_to_save)
+        pcl_stack[i,:original_points.shape[0],:] = original_points[:,:2]
+        # fill the rest of the points to complete 720 with randomly sampled previous points (not just leave zeros or -1 because that creates bias)
+        if original_points.shape[0]>0:
+            random_indices = np.random.choice(original_points.shape[0], 720-original_points.shape[0], replace=True)
+            pcl_stack[i,original_points.shape[0]:,:] = original_points[random_indices,:2]
+        else:
+            print("ERROR FOUND: no lidar signals for this datapoint")
+
+    # save two npy files for the entire episode data
+    img_filename = os.path.join(episode_folder, 'all_images.npy')
+    np.save(img_filename, image_stack)
+    pcl_filename = os.path.join(episode_folder, 'all_pcls.npy')
+    np.save(pcl_filename, pcl_stack)
 
 
 
@@ -178,9 +184,10 @@ def process_folder(folder, processed_dataset_path, output_folder_name):
                 print('Warning: episode path already exists. Skipping this episode...')
 
 # define script parameters
-base_folder = '/home/azureuser/hackathon_data_premium/hackathon_data_2p5_nonoise3'
+# base_folder = '/home/azureuser/hackathon_data_premium/hackathon_data_2p5_withfullnoise0'
+base_folder = '/home/azureuser/hackathon_data_premium/hackathon_data_2p5_withpartialnoise0'
 # base_folder = '/home/azureuser/hackathon_data/real'
-output_folder_name = 'processed_images_bev_fixed10'
+output_folder_name = 'processed_images_bev_fixed_8m'
 # folders_list = sorted(glob.glob(os.path.join(base_folder, '*')))
 folders_list = sorted([os.path.join(base_folder,x) for x in os.listdir(base_folder) if os.path.isdir(os.path.join(base_folder, x))])
 total_n_folders = len(folders_list)
